@@ -262,7 +262,7 @@ RenderContext::RenderContext(
 	float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 	_deviceContext->ClearRenderTargetView(_backbufferRtv.Get(), color);
 
-	_vbCapacity = 4 * 1024 * 1024;
+	_vbCapacity = 1024 * 1024;
 
 	_gameSize = { 0, 0 };
 	SetSizes(_gameSize, _windowSize, _screenMode);
@@ -465,8 +465,8 @@ void RenderContext::Present()
 		break;
 	}
 
-	double curTime = TimeEndMs(_timeStart);
-	_frameTimeMs = curTime - _prevTime;
+	auto curTime = TimeEnd(_timeStart);
+	_frameTimeMs = TimeToMs(curTime - _prevTime);
 	_prevTime = curTime;
 
 	if (_deviceContext1)
@@ -1052,7 +1052,12 @@ void RenderContext::ClipCursor()
 	RECT clipRect;
 	::GetClientRect(_hWnd, &clipRect);
 	::ClientToScreen(_hWnd, (LPPOINT)&clipRect.left);
-	::ClientToScreen(_hWnd, (LPPOINT)&clipRect.right);
+
+	clipRect.left += _renderRect.offset.x;
+	clipRect.top += _renderRect.offset.y;
+	clipRect.right = clipRect.left + _renderRect.size.width;
+	clipRect.bottom = clipRect.top + _renderRect.size.height;
+
 	::ClipCursor(&clipRect);
 }
 

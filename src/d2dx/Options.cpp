@@ -166,8 +166,8 @@ void Options::ApplyCommandLine(
 	if (strstr(cmdLine, "-dxnomop")) SetFlag(OptionsFlag::NoMotionPrediction, true);
 	if (strstr(cmdLine, "-dxnokeepaspectratio")) SetFlag(OptionsFlag::NoKeepAspectRatio, true);
 
-	if (strstr(cmdLine, "-dxscale3")) SetWindowScale(3.0);
-	else if (strstr(cmdLine, "-dxscale2")) SetWindowScale(2.0);
+	if (strstr(cmdLine, "-dxscale3")) SetWindowScale(3);
+	else if (strstr(cmdLine, "-dxscale2")) SetWindowScale(2);
 
 	if (strstr(cmdLine, "-dxdbg_dump_textures")) SetFlag(OptionsFlag::DbgDumpTextures, true);
 }
