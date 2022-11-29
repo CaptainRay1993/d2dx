@@ -51,13 +51,6 @@ int64_t d2dx::TimeStart()
     return (int64_t)li.QuadPart;
 }
 
-int64_t d2dx::TimeEnd(int64_t sinceThisTime)
-{
-    LARGE_INTEGER li;
-    QueryPerformanceCounter(&li);
-    return li.QuadPart - sinceThisTime;
-}
-
 double d2dx::TimeToMs(int64_t time)
 {
     assert(_freq);
@@ -136,9 +129,9 @@ static DWORD WINAPI WriteToLogFileWorkItemFunc(PVOID pvContext)
 {
     char* s = (char*)pvContext;
 
-    OutputDebugStringA(s);
-
     EnterCriticalSection(&logFileCS);
+
+    OutputDebugStringA(s);
 
     if (logFile)
     {

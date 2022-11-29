@@ -24,21 +24,21 @@ using namespace d2dx;
 using namespace DirectX;
 
 const std::int32_t D2_FRAME_LENGTH = (1 << 16) / 25;
-const float FLOAT_TO_FIXED_MUL = static_cast<float>(1 << 16);
-const float FIXED_TO_FLOAT_MUL = 1.f / FLOAT_TO_FIXED_MUL;
+const double FLOAT_TO_FIXED_MUL = static_cast<float>(1 << 16);
+const double FIXED_TO_FLOAT_MUL = 1.f / FLOAT_TO_FIXED_MUL;
 
-float fixedToFloat(int32_t x) {
-	return static_cast<float>(x) * FIXED_TO_FLOAT_MUL;
+double fixedToDouble(int32_t x) {
+	return static_cast<double>(x) * FIXED_TO_FLOAT_MUL;
 }
 
-OffsetF fixedToFloat(Offset x) {
-	return OffsetF(
-		static_cast<float>(x.x) * FIXED_TO_FLOAT_MUL,
-		static_cast<float>(x.y) * FIXED_TO_FLOAT_MUL
+OffsetT<double> fixedToDouble(Offset x) {
+	return OffsetT<double>(
+		static_cast<double>(x.x) * FIXED_TO_FLOAT_MUL,
+		static_cast<double>(x.y) * FIXED_TO_FLOAT_MUL
 	);
 }
 
-Offset floatToFixed(OffsetF x) {
+Offset doubleToFixed(OffsetT<double> x) {
 	return Offset(
 		static_cast<int32_t>(x.x * FLOAT_TO_FIXED_MUL),
 		static_cast<int32_t>(x.y * FLOAT_TO_FIXED_MUL)
@@ -58,15 +58,23 @@ UnitMotionPredictor::UnitMotionPredictor(
 _Use_decl_annotations_
 Offset UnitMotionPredictor::GetOffset(
 	D2::UnitAny const* unit,
-	Offset screenPos)
+	Offset screenPos,
+	bool isPlayer)
 {
 	auto info = _gameHelper->GetUnitInfo(unit);
 	auto prev = std::lower_bound(_prevUnits.begin(), _prevUnits.end(), unit, [&](auto const& x, auto const& y) { return x.unit < y; });
 	if (prev == _prevUnits.end() || prev->id != info.id || prev->type != info.type) {
 		if (!_update) {
+			D2DX_LOG_PROFILE("MotionPredictor: Unexpected frame update");
 			_update = true;
-			_sinceLastUpdate = 0;
-
+			if (_sinceLastUpdate - _currentUpdateTime < D2_FRAME_LENGTH / 2) {
+				_sinceLastUpdate = _currentUpdateTime - _currentUpdateTime / 4;
+				_frameTimeAdjustment = 0;
+			}
+			else {
+				_frameTimeAdjustment = D2_FRAME_LENGTH - _sinceLastUpdate + _currentUpdateTime;
+				_sinceLastUpdate = 0;
+			}
 
 			for (auto& pred : _units) {
 				pred.predictedPos = pred.actualPos;
@@ -84,8 +92,16 @@ Offset UnitMotionPredictor::GetOffset(
 	prev->nextIdx = _units.size();
 	prevUnit.screenPos = screenPos;
 	if (!_update && prevUnit.actualPos != info.pos) {
+		D2DX_LOG_PROFILE("MotionPredictor: Unexpected frame update");
 		_update = true;
-		_sinceLastUpdate = 0;
+		if (_sinceLastUpdate - _currentUpdateTime < D2_FRAME_LENGTH / 2) {
+			_sinceLastUpdate = _currentUpdateTime - _currentUpdateTime / 4;
+			_frameTimeAdjustment = 0;
+		}
+		else {
+			_frameTimeAdjustment = D2_FRAME_LENGTH - _sinceLastUpdate + _currentUpdateTime;
+			_sinceLastUpdate = 0;
+		}
 
 		for (auto& pred : _units) {
 			pred.predictedPos = pred.actualPos;
@@ -95,45 +111,63 @@ Offset UnitMotionPredictor::GetOffset(
 
 	if (prevUnit.actualPos == info.pos) {
 		if (_update) {
-			prevUnit.predictedPos = prevUnit.actualPos;
-			prevUnit.basePos = prevUnit.lastRenderedPos;
+			if (isPlayer) {
+				prevUnit.predictedPos = prevUnit.lastRenderedPos;
+				prevUnit.basePos = prevUnit.lastRenderedPos;
+			}
+			else {
+				prevUnit.predictedPos = prevUnit.actualPos;
+				prevUnit.basePos = prevUnit.lastRenderedPos;
+			}
 		}
 	}
 	else {
 		auto predOffset = info.pos - prevUnit.actualPos;
 		prevUnit.actualPos = info.pos;
-		if (std::abs(predOffset.x) >= 2 << 16 || std::abs(predOffset.y) >= 2 << 16) {
+		if (std::abs(predOffset.x) >= (2 << 16) || std::abs(predOffset.y) >= (2 << 16)) {
 			prevUnit.basePos = info.pos;
 			prevUnit.predictedPos = info.pos;
 		}
 		else {
 			prevUnit.basePos = prevUnit.lastRenderedPos;
 			prevUnit.predictedPos = info.pos + predOffset;
+			if (isPlayer) {
+				D2DX_LOG_PROFILE(
+					"MotionPredictor: Update player velocity %.4f/frame",
+					fixedToDouble(prevUnit.predictedPos - prevUnit.lastRenderedPos).RealLength()
+				);
+			}
 		}
 	}
 
-	float predictionTime = fixedToFloat(D2_FRAME_LENGTH + _frameTimeAdjustment);
-	float currentTime = fixedToFloat(_sinceLastUpdate + _frameTimeAdjustment);
-	float predFract = currentTime / predictionTime;
-
-	auto offsetFromActual = fixedToFloat(prevUnit.predictedPos - prevUnit.actualPos) * predFract;
-	auto offsetFromBase = fixedToFloat(prevUnit.predictedPos - prevUnit.basePos) * predFract;
-	
-	OffsetF renderOffset;
-	if (offsetFromActual.x == 0.f && offsetFromActual.y == 0.f) {
-		renderOffset = offsetFromBase;
+	OffsetT<double> renderPos;
+	if (prevUnit.predictedPos == prevUnit.lastRenderedPos) {
+		renderPos = fixedToDouble(prevUnit.predictedPos);
 	}
 	else {
-		//renderOffset = offsetFromBase;
-		renderOffset = offsetFromBase* (1.f - predFract) + offsetFromActual * predFract;
+		double predFractFromBase = fixedToDouble(_sinceLastUpdate + _frameTimeAdjustment)
+			/ fixedToDouble(D2_FRAME_LENGTH + _frameTimeAdjustment);
+		double predFractFromActual = fixedToDouble(_sinceLastUpdate) / fixedToDouble(D2_FRAME_LENGTH);
+
+		auto offsetFromBase = fixedToDouble(prevUnit.predictedPos - prevUnit.basePos) * predFractFromBase;
+		auto offsetFromActual = fixedToDouble(prevUnit.predictedPos - prevUnit.actualPos) * predFractFromActual;
+		auto renderPosFromBase = fixedToDouble(prevUnit.basePos) + offsetFromBase;
+		auto renderPosFromActual = fixedToDouble(prevUnit.actualPos) + offsetFromActual;
+		renderPos = renderPosFromBase * (1.f - predFractFromBase) + renderPosFromActual * predFractFromBase;
 	}
 
-	auto renderPos = fixedToFloat(prevUnit.basePos) + renderOffset;
-	auto offset = renderPos - fixedToFloat(prevUnit.actualPos);
-	prevUnit.lastRenderedPos = floatToFixed(renderPos);
+	if (isPlayer) {
+		D2DX_LOG_PROFILE(
+			"MotionPredictor: Move player by %f",
+			(fixedToDouble(prevUnit.lastRenderedPos) - renderPos).RealLength()
+		);
+	}
 
-	const OffsetF scaleFactors{ 32.0f / std::sqrt(2.0f), 16.0f / std::sqrt(2.0f) };
-	OffsetF screenOffset = scaleFactors * OffsetF{ offset.x - offset.y, offset.x + offset.y } + 0.5f;
+	auto offset = renderPos - fixedToDouble(prevUnit.actualPos);
+	prevUnit.lastRenderedPos = doubleToFixed(renderPos);
+
+	const OffsetT<double> scaleFactors{ 32.0f / std::sqrt(2.0), 16.0f / std::sqrt(2.0) };
+	auto screenOffset = scaleFactors * OffsetT<double>{ offset.x - offset.y, offset.x + offset.y } + 0.5;
 	prevUnit.lastRenderedScreenOffset = { (int32_t)screenOffset.x, (int32_t)screenOffset.y };
 	
 	_units.push_back(prevUnit);
@@ -185,8 +219,13 @@ void UnitMotionPredictor::UpdateShadowVerticies(
 
 _Use_decl_annotations_
 void UnitMotionPredictor::PrepareForNextFrame(
-	int32_t timeToNext)
+	_In_ uint32_t prevProjectedTime,
+	_In_ uint32_t prevActualTime,
+	_In_ uint32_t projectedTime)
 {
+	_sinceLastUpdate -= prevProjectedTime + 10;
+	_sinceLastUpdate += prevActualTime;
+
 	std::swap(_units, _prevUnits);
 	std::stable_sort(_prevUnits.begin(), _prevUnits.end(), [&](auto& x, auto& y) { return x.unit < y.unit; });
 	_units.clear();
@@ -194,8 +233,10 @@ void UnitMotionPredictor::PrepareForNextFrame(
 	_update = false;
 
 	auto timeBeforeUpdate = D2_FRAME_LENGTH - _sinceLastUpdate;
-	_sinceLastUpdate += timeToNext;
-	if (_sinceLastUpdate >= D2_FRAME_LENGTH - 10) {
+	_currentUpdateTime = projectedTime + 10;
+	_sinceLastUpdate += projectedTime + 10;
+	if (_sinceLastUpdate >= D2_FRAME_LENGTH) {
+		D2DX_LOG_PROFILE("MotionPredictor: Expect frame update");
 		_update = true;
 		_sinceLastUpdate -= D2_FRAME_LENGTH;
 		_frameTimeAdjustment = timeBeforeUpdate;
@@ -203,6 +244,19 @@ void UnitMotionPredictor::PrepareForNextFrame(
 			_prevUnits.clear();
 			_sinceLastUpdate = 0;
 			_frameTimeAdjustment = 0;
+			_currentUpdateTime = 0;
 		}
 	}
+	else if (_sinceLastUpdate < -D2_FRAME_LENGTH) {
+		_prevUnits.clear();
+		_sinceLastUpdate = 0;
+		_frameTimeAdjustment = 0;
+		_currentUpdateTime = 0;
+	}
+
+	D2DX_LOG_PROFILE(
+		"MotionPredictor: Predict at %d/%d of a frame",
+		_sinceLastUpdate + _frameTimeAdjustment,
+		D2_FRAME_LENGTH + _frameTimeAdjustment
+	);
 }

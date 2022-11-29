@@ -30,11 +30,14 @@ namespace d2dx
 			_In_ const std::shared_ptr<IGameHelper>& gameHelper);
 
 		void PrepareForNextFrame(
-			_In_ int32_t timeToNext);
+			_In_ uint32_t prevProjectedTime,
+			_In_ uint32_t prevActualTime,
+			_In_ uint32_t projectedTime);
 
 		Offset GetOffset(
 			_In_ const D2::UnitAny* unit,
-			_In_ Offset screenPos);
+			_In_ Offset screenPos,
+			_In_ bool isPlayer);
 
 		void StartShadow(
 			_In_ Offset screenPos,
@@ -95,6 +98,7 @@ namespace d2dx
 		std::vector<Unit> _units;
 		std::vector<Unit> _prevUnits;
 		std::vector<Shadow> _shadows;
+		int32_t _currentUpdateTime = 0;
 		int32_t _sinceLastUpdate = 0;
 		int32_t _frameTimeAdjustment = 0;
 		bool _update = false;

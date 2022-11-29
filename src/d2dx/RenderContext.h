@@ -110,8 +110,15 @@ namespace d2dx
 
 		virtual void ToggleFullscreen() override;
 
-		virtual float GetFrameTime() const override;
-		virtual int32_t GetFrameTimeFp() const override;
+		virtual double GetProjectedFrameTime() const override;
+		virtual int32_t GetProjectedFrameTimeFp() const override;
+		virtual double GetPrevFrameTime() const override;
+		virtual int32_t GetPrevFrameTimeFp() const override;
+
+		virtual int64_t GetFrameTimeStamp() const override
+		{
+			return _prevTime;
+		}
 
 		virtual ScreenMode GetScreenMode() const override;
 
@@ -133,9 +140,6 @@ namespace d2dx
 
 		void SetBlendState(
 			_In_ AlphaBlend alphaBlend);
-
-		void AdjustWindowPlacement(
-			_In_ HWND hWnd);
 
 		uint32_t UpdateVerticesWithFullScreenTriangle(
 			_In_ Size srcSize,
@@ -214,6 +218,9 @@ namespace d2dx
 		bool _hasAdjustedWindowPlacement = false;
 
 		int64_t _prevTime;
-		double _frameTimeMs;
+		uint32_t _prevFrameTimes[4] = {};
+		unsigned char _prevFrameTimeIdx = 0;
+		double _prevFrameTimeMs = 0;
+		double _projectedFrameTimeMs = 0;
 	};
 }

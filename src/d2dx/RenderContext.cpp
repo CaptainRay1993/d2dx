@@ -59,7 +59,7 @@ RenderContext::RenderContext(
 
 	_screenMode = initialScreenMode;
 
-	_timeStart = TimeStart();
+	_prevTime = TimeStart();
 
 	_hWnd = hWnd;
 	_d2dxContext = d2dxContext;
@@ -465,8 +465,16 @@ void RenderContext::Present()
 		break;
 	}
 
-	auto curTime = TimeEnd(_timeStart);
-	_frameTimeMs = TimeToMs(curTime - _prevTime);
+	auto curTime = TimeStart();
+	_prevFrameTimeMs = TimeToMs(curTime - _prevTime);
+	_prevFrameTimes[_prevFrameTimeIdx++] = static_cast<uint32_t>(curTime - _prevTime);
+	_prevFrameTimeIdx &= 3;
+
+	uint64_t totalTime = 0;
+	for (size_t i = 0; i < 4; ++i) {
+		totalTime += _prevFrameTimes[i];
+	}
+	_projectedFrameTimeMs = TimeToMs(totalTime >> 2);
 	_prevTime = curTime;
 
 	if (_deviceContext1)
@@ -1066,14 +1074,25 @@ void RenderContext::UnclipCursor()
 	::ClipCursor(NULL);
 }
 
-float RenderContext::GetFrameTime() const
+double RenderContext::GetProjectedFrameTime() const
 {
-	return (float)(_frameTimeMs / 1000.0);
+	return _projectedFrameTimeMs / 1000.0;
 }
 
-int32_t RenderContext::GetFrameTimeFp() const
+int32_t RenderContext::GetProjectedFrameTimeFp() const
 {
-	auto frameTimeMs = (int64_t)(_frameTimeMs * (65536.0 / 1000.0));
+	auto frameTimeMs = (int64_t)(_projectedFrameTimeMs * (65536.0 / 1000.0));
+	return (int32_t)max(INT_MIN, min(INT_MAX, frameTimeMs));
+}
+
+double RenderContext::GetPrevFrameTime() const
+{
+	return _prevFrameTimeMs / 1000.0;
+}
+
+int32_t RenderContext::GetPrevFrameTimeFp() const
+{
+	auto frameTimeMs = (int64_t)(_prevFrameTimeMs * (65536.0 / 1000.0));
 	return (int32_t)max(INT_MIN, min(INT_MAX, frameTimeMs));
 }
 
