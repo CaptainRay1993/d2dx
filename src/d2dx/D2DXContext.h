@@ -79,7 +79,9 @@ namespace d2dx
 			_In_ uint32_t tmu,
 			_In_ uint32_t startAddress,
 			_In_ int32_t width,
-			_In_ int32_t height);
+			_In_ int32_t height,
+			_In_ uint32_t largeLog2,
+			_In_ uint32_t ratioLog2);
 		
 		virtual void OnConstantColorValue(
 			_In_ uint32_t color);
@@ -167,9 +169,6 @@ namespace d2dx
 
 		virtual const Options& GetOptions() const override;
 
-		virtual bool IsFeatureEnabled(
-			_In_ Feature feature) override;
-
 #pragma endregion ID2DXContext
 
 #pragma region IWin32InterceptionHandler
@@ -196,7 +195,7 @@ namespace d2dx
 		virtual void EndDrawText() override;
 
 		virtual Offset BeginDrawImage(
-			_In_ const D2::CellContext* cellContext,
+			_In_ const D2::CellContextAny* cellContext,
 			_In_ uint32_t drawMode,
 			_In_ Offset pos,
 			_In_ D2Function d2Function) override;
@@ -262,7 +261,7 @@ namespace d2dx
 
 		MajorGameState _majorGameState;
 
-		Buffer<uint32_t> _paletteKeys;
+		Buffer<uint64_t> _paletteKeys;
 
 		uint32_t _batchCount;
 		Buffer<Batch> _batches;
@@ -286,9 +285,6 @@ namespace d2dx
 		uint32_t _lastWeatherParticleIndex = 0xFFFFFFFF;
 
 		OffsetF _avgDir = { 0.0f, 0.0f };
-
-		bool _areFeatureFlagsInitialized = false;
-		uint32_t _featureFlags;
 
 		bool _skipCountingSleep = false;
 		int32_t _sleeps = 0;

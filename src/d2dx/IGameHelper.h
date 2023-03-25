@@ -47,6 +47,7 @@ namespace d2dx
 		uint32_t unitId;
 		uint32_t unitType;
 		uint32_t unitToken;
+		uint32_t unitMode;
 	};
 
 	struct IGameHelper abstract
@@ -65,7 +66,7 @@ namespace d2dx
 			_In_ uint32_t returnAddress) const = 0;
 
 		virtual TextureCategory GetTextureCategoryFromHash(
-			_In_ uint32_t textureHash) const = 0;
+			_In_ uint64_t textureHash) const = 0;
 
 		virtual TextureCategory RefineTextureCategoryFromGameAddress(
 			_In_ TextureCategory previousCategory,
@@ -81,7 +82,7 @@ namespace d2dx
 			_In_ D2Function function) const = 0;
 
 		virtual DrawParameters GetDrawParameters(
-			_In_ const D2::CellContext* cellContext) const = 0;
+			_In_ const D2::CellContextAny* cellContext) const = 0;
 
 		virtual D2::UnitAny* GetPlayerUnit() const = 0;
 

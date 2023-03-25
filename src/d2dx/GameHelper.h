@@ -41,7 +41,7 @@ namespace d2dx
 			_In_ uint32_t returnAddress) const override;
 
 		virtual TextureCategory GetTextureCategoryFromHash(
-			_In_ uint32_t textureHash) const override;
+			_In_ uint64_t textureHash) const override;
 		
 		virtual TextureCategory RefineTextureCategoryFromGameAddress(
 			_In_ TextureCategory previousCategory,
@@ -57,7 +57,7 @@ namespace d2dx
 			_In_ D2Function function) const override;
 
 		virtual DrawParameters GetDrawParameters(
-			_In_ const D2::CellContext* cellContext) const override;
+			_In_ const D2::CellContextAny* cellContext) const override;
 
 		virtual D2::UnitAny* GetPlayerUnit() const override;
 

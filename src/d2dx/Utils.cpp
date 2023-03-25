@@ -51,13 +51,17 @@ int64_t d2dx::TimeStart()
     return (int64_t)li.QuadPart;
 }
 
-float d2dx::TimeEndMs(int64_t sinceThisTime)
+int64_t d2dx::TimeEnd(int64_t sinceThisTime)
 {
-    warmup();
     LARGE_INTEGER li;
     QueryPerformanceCounter(&li);
+    return li.QuadPart - sinceThisTime;
+}
+
+double d2dx::TimeToMs(int64_t time)
+{
     assert(_freq);
-    return (float)(double(li.QuadPart - sinceThisTime) / _freq);
+    return static_cast<double>(time) / _freq;
 }
 
 #define STATUS_SUCCESS (0x00000000)
@@ -247,7 +251,7 @@ void d2dx::detail::FatalError(
 
 _Use_decl_annotations_
 void d2dx::DumpTexture(
-    uint32_t hash,
+    uint64_t hash,
     int32_t w,
     int32_t h,
     const uint8_t* pixels,
@@ -269,7 +273,7 @@ void d2dx::DumpTexture(
         std::filesystem::create_directory(s);
     }
 
-    sprintf_s(s, "dump/%u/%08x.bmp", textureCategory, hash);
+    sprintf_s(s, "dump/%u/%016llx.bmp", textureCategory, hash);
 
     if (std::filesystem::exists(s))
     {

@@ -49,7 +49,7 @@ BuiltinResMod::BuiltinResMod(
 
         if (!WriteResourceToFile(hModule, IDR_SGD2FR_DLL, "dll", "d2dx_sgd2freeres.dll"))
         {
-            D2DX_LOG("Failed to write d2dx_sgd2freeres.mpq");
+            D2DX_LOG("Failed to write d2dx_sgd2freeres.dll");
         }
 
         if (!WriteConfig(gameSize))
@@ -78,6 +78,8 @@ bool BuiltinResMod::IsCompatible(
     auto gameVersion = gameHelper->GetVersion();
 
     if (gameVersion != d2dx::GameVersion::Lod109d &&
+        gameVersion != d2dx::GameVersion::Lod110f &&
+        gameVersion != d2dx::GameVersion::Lod112 &&
         gameVersion != d2dx::GameVersion::Lod113c &&
         gameVersion != d2dx::GameVersion::Lod113d &&
         gameVersion != d2dx::GameVersion::Lod114d)

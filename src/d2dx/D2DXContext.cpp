@@ -70,8 +70,7 @@ D2DXContext::D2DXContext(
 	_surfaceIdTracker{ gameHelper },
 	_textMotionPredictor{ gameHelper },
 	_unitMotionPredictor{ gameHelper },
-	_weatherMotionPredictor{ gameHelper },
-	_featureFlags{ 0 }
+	_weatherMotionPredictor{ gameHelper }
 {
 	_threadId = GetCurrentThreadId();
 
@@ -222,7 +221,7 @@ void D2DXContext::OnSstWinOpen(
 			windowSize.width = width;
 			windowSize.height = height;
 		}
-		_renderContext->SetSizes(gameSize, windowSize * _options.GetWindowScale());
+		_renderContext->SetSizes(gameSize, windowSize * _options.GetWindowScale(), _renderContext->GetScreenMode());
 	}
 
 	_batchCount = 0;
@@ -277,7 +276,9 @@ void D2DXContext::OnTexSource(
 	uint32_t tmu,
 	uint32_t startAddress,
 	int32_t width,
-	int32_t height)
+	int32_t height,
+	uint32_t largeLog2,
+	uint32_t ratioLog2)
 {
 	assert(tmu == 0 && (startAddress & 255) == 0);
 	if (!(tmu == 0 && (startAddress & 255) == 0))
@@ -294,10 +295,10 @@ void D2DXContext::OnTexSource(
 	_BitScanReverse((DWORD*)&stShift, max(width, height));
 	_glideState.stShift = 8 - stShift;
 
-	uint32_t hash = _textureHasher.GetHash(startAddress, pixels, pixelsSize);
+	uint64_t hash = _textureHasher.GetHash(startAddress, pixels, pixelsSize, largeLog2, ratioLog2);
 
 	/* Patch the '5' to not look like '6'. */
-	if (hash == 0x8a12f6bb)
+	if (hash == 0xbeed610acac387d3)
 	{
 		pixels[1 + 10 * 16] = 181;
 		pixels[2 + 10 * 16] = 181;
@@ -323,9 +324,10 @@ void D2DXContext::CheckMajorGameState()
 {
 	const int32_t batchCount = (int32_t)_batchCount;
 
-	if (_majorGameState == MajorGameState::Unknown && batchCount == 0)
+	if ((_majorGameState == MajorGameState::Unknown || _majorGameState == MajorGameState::FmvIntro) && batchCount == 0)
 	{
 		_majorGameState = MajorGameState::FmvIntro;
+		return;
 	}
 
 	_majorGameState = MajorGameState::Menus;
@@ -342,7 +344,7 @@ void D2DXContext::CheckMajorGameState()
 			const Batch& batch = _batches.items[i];
 			const int32_t y0 = _vertices.items[batch.GetStartVertex()].GetY();
 
-			if (batch.GetHash() == 0x4bea7b80 && y0 >= 550)
+			if (batch.GetHash() == 0x84ab94c374c42d9a && y0 >= 550)
 			{
 				_majorGameState = MajorGameState::TitleScreen;
 				break;
@@ -410,7 +412,7 @@ void D2DXContext::OnBufferSwap()
 	CheckMajorGameState();
 	InsertLogoOnTitleScreen();
 
-	if (IsFeatureEnabled(Feature::UnitMotionPrediction) &&
+	if (!_options.GetFlag(OptionsFlag::NoMotionPrediction) &&
 		_majorGameState == MajorGameState::InGame)
 	{
 		const Offset offset = _unitMotionPredictor.GetOffset(_gameHelper->GetPlayerUnit());
@@ -623,7 +625,7 @@ void D2DXContext::OnDrawLine(
 	vertex0.SetTexcoord((int32_t)d2Vertex1->s >> _glideState.stShift, (int32_t)d2Vertex1->t >> _glideState.stShift);
 	vertex0.SetColor(maskedConstantColor | (d2Vertex1->color & iteratedColorMask));
 
-	if (IsFeatureEnabled(Feature::WeatherMotionPrediction) &&
+	if (!_options.GetFlag(OptionsFlag::NoMotionPrediction) &&
 		currentlyDrawingWeatherParticles)
 	{
 		uint32_t currentWeatherParticleIndex = *currentlyDrawingWeatherParticleIndexPtr;
@@ -946,7 +948,7 @@ void D2DXContext::OnTexDownloadTable(
 
 	_readVertexState.isDirty = true;
 
-	uint32_t hash = fnv_32a_buf(data, 1024, FNV1_32A_INIT);
+	uint64_t hash = XXH3_64bits(data, 1024);
 	assert(hash != 0);
 
 	for (uint32_t i = 0; i < D2DX_MAX_GAME_PALETTES; ++i)
@@ -1020,7 +1022,8 @@ void D2DXContext::OnLfbUnlock(
 	const uint32_t* lfbPtr,
 	uint32_t strideInBytes)
 {
-	_renderContext->WriteToScreen(lfbPtr, 640, 480);
+	bool forCinematic = !(_majorGameState == MajorGameState::Unknown || _majorGameState == MajorGameState::FmvIntro);
+	_renderContext->WriteToScreen(lfbPtr, 640, 480, forCinematic);
 }
 
 _Use_decl_annotations_
@@ -1065,7 +1068,7 @@ void D2DXContext::PrepareLogoTextureBatch()
 
 	_renderContext->SetPalette(D2DX_LOGO_PALETTE_INDEX, palette.items);
 
-	uint32_t hash = fnv_32a_buf((void*)srcPixels, sizeof(uint8_t) * 81 * 40, FNV1_32A_INIT);
+	uint64_t hash = XXH3_64bits((void*)srcPixels, sizeof(uint8_t) * 81 * 40);
 
 	uint8_t* data = _glideState.sideTmuMemory.items;
 
@@ -1258,24 +1261,13 @@ const Options& D2DXContext::GetOptions() const
 
 void D2DXContext::OnBufferClear()
 {
-	if (_majorGameState == MajorGameState::InGame)
+	if (_majorGameState == MajorGameState::InGame && !_options.GetFlag(OptionsFlag::NoMotionPrediction))
 	{
-		if (IsFeatureEnabled(Feature::UnitMotionPrediction))
-		{
 			_unitMotionPredictor.Update(_renderContext.get());
-		}
-
-		if (IsFeatureEnabled(Feature::TextMotionPrediction))
-		{
 			_textMotionPredictor.Update(_renderContext.get());
-		}
-
-		if (IsFeatureEnabled(Feature::WeatherMotionPrediction))
-		{
 			_weatherMotionPredictor.Update(_renderContext.get());
 		}
 	}
-}
 
 _Use_decl_annotations_
 Offset D2DXContext::BeginDrawText(
@@ -1294,11 +1286,11 @@ Offset D2DXContext::BeginDrawText(
 		return offset;
 	}
 
-	if (d2Function != D2Function::D2Win_DrawText && IsFeatureEnabled(Feature::TextMotionPrediction))
+	if (d2Function != D2Function::D2Win_DrawText && !_options.GetFlag(OptionsFlag::NoMotionPrediction))
 	{
 		auto hash = fnv_32a_buf((void*)str, wcslen(str), FNV1_32A_INIT);
 
-		const uint64_t textId = 
+		const uint64_t textId =
 			(((uint64_t)(returnAddress & 0xFFFFFF) << 40ULL) |
 			((uint64_t)((uintptr_t)str & 0xFFFFFF) << 16ULL)) ^
 			(uint64_t)hash;
@@ -1311,7 +1303,7 @@ Offset D2DXContext::BeginDrawText(
 		// In 1.14d, some color codes are black. Remap them.
 
 		// Bright white -> white
-		while (wchar_t* subStr = wcsstr(str, L"ÿc/"))
+		while (wchar_t* subStr = wcsstr(str, L"ï¿½c/"))
 		{
 			subStr[2] = L'0';
 		}
@@ -1328,7 +1320,7 @@ void D2DXContext::EndDrawText()
 
 _Use_decl_annotations_
 Offset D2DXContext::BeginDrawImage(
-	const D2::CellContext* cellContext,
+	const D2::CellContextAny* cellContext,
 	uint32_t drawMode,
 	Offset pos,
 	D2Function d2Function)
@@ -1375,8 +1367,8 @@ Offset D2DXContext::BeginDrawImage(
 		else
 		{
 			DrawParameters drawParameters = _gameHelper->GetDrawParameters(cellContext);
-			const bool isMiscUi = drawParameters.unitType == 0 && cellContext->dwMode == 0 && drawMode != 3;
-			const bool isBeltItem = drawParameters.unitType == 4 && cellContext->dwMode == 4;
+			const bool isMiscUi = drawParameters.unitType == 0 && drawParameters.unitMode == 0 && drawMode != 3;
+			const bool isBeltItem = drawParameters.unitType == 4 && drawParameters.unitMode == 4;
 
 			if (isMiscUi || isBeltItem)
 			{
@@ -1396,45 +1388,4 @@ void D2DXContext::EndDrawImage()
 	}
 
 	_scratchBatch.SetTextureCategory(TextureCategory::Unknown);
-}
-
-_Use_decl_annotations_
-bool D2DXContext::IsFeatureEnabled(
-	Feature feature)
-{
-	if (!_areFeatureFlagsInitialized)
-	{
-		const auto gameVersion = _gameHelper->GetVersion();
-
-		_featureFlags = 0;
-		D2DX_LOG("Feature flags:");
-
-		if (!_options.GetFlag(OptionsFlag::NoMotionPrediction))
-		{
-			if (
-				gameVersion == GameVersion::Lod109d ||
-				gameVersion == GameVersion::Lod112 ||
-				gameVersion == GameVersion::Lod113c ||
-				gameVersion == GameVersion::Lod113d ||
-				gameVersion == GameVersion::Lod114d)
-			{
-				_featureFlags |= (uint32_t)Feature::UnitMotionPrediction;
-				D2DX_LOG("  UnitMotionPrediction");
-				_featureFlags |= (uint32_t)Feature::WeatherMotionPrediction;
-				D2DX_LOG("  WeatherMotionPrediction");
-			}
-
-			if (gameVersion == GameVersion::Lod113c ||
-				gameVersion == GameVersion::Lod113d ||
-				gameVersion == GameVersion::Lod114d)
-			{
-				_featureFlags |= (uint32_t)Feature::TextMotionPrediction;
-				D2DX_LOG("  TextMotionPrediction");
-			}
-		}
-
-		_areFeatureFlagsInitialized = true;
-	}
-
-	return (_featureFlags & (uint32_t)feature) != 0;
 }
